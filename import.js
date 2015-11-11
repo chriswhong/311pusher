@@ -42,16 +42,16 @@ function pushData() {
   lr.on('line', function (line) {
     
     if(firstLine) {
-      setHeader(line);
+      //setHeader(line);
       firstLine=false;
     } else {
       line = CSV.parse(line);
       var valueString = buildValueString(line[0]);
-      valueStrings.push(valueString);
+      valueStrings.push(valueString); 
+      batchCount++;
+      totalCount++;
     }
 
-    batchCount++;
-    totalCount++;
 
     if(batchCount==insertCount) {
       lr.pause();
@@ -72,7 +72,10 @@ function pushData() {
         if(!res.error) {
           var count = res.rows[0].count;
           console.log('I count ' + count + ' rows in the CartoDB table');
-          fs.writeFile('finalcount/' + count);
+          console.log(count,sourceRowcount-1)
+          if (count == sourceRowcount-1) {
+            setgeom();
+          }
         } else {
           console.log(res.error)
         }
@@ -80,6 +83,28 @@ function pushData() {
   });
 }
 
+function setgeom() {
+  //setting the_geom
+  executeSQL('UPDATE etltest SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
+    if(!res.error) {
+      appendMaster();
+    } else {
+      console.log(res.error);
+    }
+  })
+}
+
+
+function appendMaster() {
+  executeSQL('TRUNCATE TABLE union_311; INSERT into union_311 SELECT * FROM etltest',function(res) {
+    if(!res.error) {
+      console.log(res);
+      console.log('Done!')
+    } else {
+      console.log(res.error);
+    }
+  })
+}
 
 
 function processBatch() {
