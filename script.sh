@@ -1,4 +1,4 @@
-rowcount=5001
+rowcount=1000001
 insertcount=1000
 
 rm data/source.csv

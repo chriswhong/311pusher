@@ -6,6 +6,11 @@ var LineByLineReader = require('line-by-line'),
 
     require('dotenv').load();
 
+var memwatch = require('memwatch-next');
+memwatch.on('leak', function(info) {
+ console.error('Memory leak detected: ', info);
+});
+
 var sourceFile = process.argv[2];
 var sourceRowcount = process.argv[3];
 var insertCount = process.argv[4];
@@ -112,7 +117,7 @@ function processBatch() {
     executeSQL(query,function() {
       console.log(totalCount + ' rows processed!')
       batchCount = 0;
-      valueStrings=[];
+      valueStrings.length = 0;
       lr.resume();
     });
 }
