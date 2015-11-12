@@ -192,8 +192,15 @@ function executeSQL(sql,cb) {
     form:    { q: sql }
   }, function(error, response, body) {
     if(!error) {
-	 cb(JSON.parse(body));
-	} else {console.log(error)}	
+      try {
+        cb(JSON.parse(body));
+      } catch (e) {
+        console.log(body)
+      }
+	     
+	   } else {
+      console.log(error)
+    }	
 
   });
 }
