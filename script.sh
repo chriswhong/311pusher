@@ -1,20 +1,20 @@
-rowcount=1000001
-insertcount=1000
+env=$1
 
-rm data/source.csv
+if [ "$1" == "dev" ]; then
+  rowcount=1001
+  insertcount=600
+  tablename=union_311_dev
+else
+  rowcount=1000001
+  insertcount=1000
+  tablename=union_311
+fi
+
+rm data/*
 rm finalcount/*
-mkdir finalcount
 mkdir data
+mkdir finalcount
 
 curl http://www.opendatacache.com/data.cityofnewyork.us/api/views/erm2-nwe9/rows.csv | gunzip -c | head -n "$rowcount" >> data/source.csv
 
-node import.js data/source.csv $rowcount $insertcount
-# wait
-# finalcount=$(ls finalcount)
-
-# if [ $finalcount == $((rowcount-1)) ]; then
-#   echo "All rows successfully pushed"
-#   node finalSQL.js
-# else
-#   echo "something went wrong, the rowcounts do not match"
-# fi
+node import.js data/source.csv $rowcount $insertcount $tablename

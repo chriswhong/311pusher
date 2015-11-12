@@ -1,0 +1,29 @@
+{
+  "name": "311pusher",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.sh",
+  "dependencies": {
+    "csv-string": "^2.3.0",
+    "dotenv": "^1.2.0",
+    "line-by-line": "^0.1.4",
+    "mustache": "^2.2.0",
+    "node-csv": "^0.1.2",
+    "nodemailer": "^1.9.0",
+    "request": "^2.65.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chriswhong/311pusher.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/chriswhong/311pusher/issues"
+  },
+  "homepage": "https://github.com/chriswhong/311pusher"
+}

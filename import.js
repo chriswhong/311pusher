@@ -1,19 +1,26 @@
 var LineByLineReader = require('line-by-line'),
-    Mustache = require('mustache'),
-    CSV = require('csv-string'),
-    request = require('request'),
-    fs = require('fs');
+  Mustache = require('mustache'),
+  CSV = require('csv-string'),
+  request = require('request'),
+  fs = require('fs'),
+  nodemailer = require('nodemailer');
 
-    require('dotenv').load();
+require('dotenv').load();
 
-var memwatch = require('memwatch-next');
-memwatch.on('leak', function(info) {
- console.error('Memory leak detected: ', info);
+// create reusable transporter object using SMTP transport 
+var transporter = nodemailer.createTransport({
+    service: 'Gmail',
+    auth: {
+        user: process.env.EMAIL,
+        pass: process.env.EMAILPASS
+    }
 });
 
 var sourceFile = process.argv[2];
 var sourceRowcount = process.argv[3];
 var insertCount = process.argv[4];
+var tableName = process.argv[5];
+var scratchTableName = tableName + '_scratch';
 
 var cdbConfig = {
   username: process.env.USERNAME,
@@ -22,22 +29,22 @@ var cdbConfig = {
 
 var totalCount = 0,
   batchCount = 0,
-  valueStrings = [];
-
-var lr;
+  valueStrings = [],
+  lr,
+  lastBatch = false;
 
 console.log('Truncating table...');
-executeSQL('TRUNCATE TABLE etltest',function(res){
+executeSQL('TRUNCATE TABLE ' + tableName + '_scratch', function(res){
   console.log(res);
- if(!res.error) {
-  pushData();
- } else {
-  console.log(res.error)
- }
+  if(!res.error) {
+    console.log('Success, pushing data to CartoDB...')
+    pushData();
+  } else {
+    console.log(res.error)
+  }
 });
 
 function pushData() {
-  console.log('pushdata!')
 
   var firstLine = true;
   var header;
@@ -47,14 +54,13 @@ function pushData() {
   lr.on('line', function (line) {
     
     if(firstLine) {
-      //setHeader(line);
       firstLine=false;
     } else {
       line = CSV.parse(line);
       var valueString = buildValueString(line[0]);
       valueStrings.push(valueString); 
       batchCount++;
-      totalCount++;
+      // totalCount++;
     }
 
 
@@ -71,27 +77,16 @@ function pushData() {
 
   lr.on('end', function () {
       //process the last chunk
+      lastBatch = true;
       processBatch();
-      // make check the table size
-      executeSQL('SELECT count(*) FROM etltest;',function(res) {
-        if(!res.error) {
-          var count = res.rows[0].count;
-          console.log('I count ' + count + ' rows in the CartoDB table');
-          console.log(count,sourceRowcount-1)
-          if (count == sourceRowcount-1) {
-            setgeom();
-          }
-        } else {
-          console.log(res.error)
-        }
-      });
   });
 }
 
 function setgeom() {
   console.log('Setting the_geom...')
-  executeSQL('UPDATE etltest SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
+  executeSQL('UPDATE ' + scratchTableName + ' SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
     if(!res.error) {
+      console.log(res);
       appendMaster();
     } else {
       console.log(res.error);
@@ -101,33 +96,90 @@ function setgeom() {
 
 
 function appendMaster() {
-console.log('Appending to production table');
-  executeSQL('TRUNCATE TABLE union_311; INSERT into union_311 SELECT * FROM etltest',function(res) {
+  console.log('Appending to production table..');
+  var sql = Mustache.render('TRUNCATE TABLE {{tableName}}; INSERT into {{tableName}} SELECT * FROM {{scratchTableName}}',{
+    tableName: tableName,
+    scratchTableName: scratchTableName
+  });
+  executeSQL(sql, function(res) {
     if(!res.error) {
       console.log(res);
-      console.log('Done!')
+      checkFinalSize();
     } else {
       console.log(res.error);
     }
   })
 }
 
+function checkFinalSize() {
+  console.log('Verifying rowcount in production table...');
+  executeSQL('SELECT count(*) FROM ' + tableName, function(res) {
+    if(!res.error) {
+      console.log('Rowcount: ' + res.rows[0].count);
+      sendNotification(res.rows[0].count);
+    } else {
+      console.log(res.error);
+    }
+  })
+}
+
+function sendNotification(count) {
+  // setup e-mail data with unicode symbols 
+  var message = 'The 311 script completed and wrote ' + count + ' into table ' + tableName + '.  I just thought you might want to know...';
+
+  var mailOptions = {
+      from: 'Chris Whong ✔ <chris.m.whong@gmail.com>', // sender address 
+      to: 'chris.m.whong@gmail.com', // list of receivers 
+      subject: '311 Script Complete', // Subject line 
+      text: message
+  };
+   
+  // send mail with defined transport object 
+  transporter.sendMail(mailOptions, function(error, info){
+      if(error){
+          return console.log(error);
+      }
+      console.log('Message sent: ' + info.response);
+  });
+}
+
+function checkSize() {
+  executeSQL('SELECT count(*) FROM ' + scratchTableName, function(res) {
+    if(!res.error) {
+      var count = res.rows[0].count;
+      console.log('I count ' + count + ' rows in the CartoDB table');
+      console.log(count,sourceRowcount-1)
+      if (count == sourceRowcount-1) {
+        setgeom();
+      }
+    } else {
+      console.log(res.error)
+    }
+  });
+}
 
 function processBatch() {
+  console.log('Pushing ' + batchCount + ' rows...')
   var query = buildInsertQuery(valueStrings);
-    executeSQL(query,function(res) {
-      console.log(res);
-      console.log(totalCount + ' rows processed!')
-      batchCount = 0;
-      valueStrings.length = 0;
+  executeSQL(query,function(res) {
+    console.log(res);
+    totalCount += res.total_rows;
+    console.log('Total pushed: '+ totalCount)
+    batchCount = 0;
+    valueStrings.length = 0;
+    
+    console.log(lastBatch)
+    if(lastBatch == true) {
+      checkSize();
+    } else {
       lr.resume();
-    });
+    }
+  });
 }
 
 //executes SQL API calls
 function executeSQL(sql,cb) {
-  console.log('Executing SQL...')
-
+  
   var options = {
     username: cdbConfig.username,
     apikey: cdbConfig.apikey
@@ -184,9 +236,12 @@ function buildInsertQuery() {
   });
 
 
-  var template = 'INSERT into etltest (unique_key,created_date,closed_date,agency,agency_name,complaint_type,descriptor,location_type,incident_zip,incident_address,street_name,cross_street_1,cross_street_2,intersection_street_1,intersection_street_2,address_type,city,landmark,facility_type,status,due_date,resolution_description,resolution_action_updated_date,community_board,borough,x_coordinate_state_plane,y_coordinate_state_plane,park_facility_name,park_borough,school_name,school_number,school_region,school_code,school_phone_number,school_address,school_city,school_state,school_zip,school_not_found,school_or_citywide_complaint,vehicle_type,taxi_company_borough,taxi_pick_up_location,bridge_highway_name,bridge_highway_direction,road_ramp,bridge_highway_segment,garage_lot_name,ferry_direction,ferry_terminal_name,latitude,longitude,location) VALUES {{{allValues}}}';
+  var template = 'INSERT into {{scratchTableName}} (unique_key,created_date,closed_date,agency,agency_name,complaint_type,descriptor,location_type,incident_zip,incident_address,street_name,cross_street_1,cross_street_2,intersection_street_1,intersection_street_2,address_type,city,landmark,facility_type,status,due_date,resolution_description,resolution_action_updated_date,community_board,borough,x_coordinate_state_plane,y_coordinate_state_plane,park_facility_name,park_borough,school_name,school_number,school_region,school_code,school_phone_number,school_address,school_city,school_state,school_zip,school_not_found,school_or_citywide_complaint,vehicle_type,taxi_company_borough,taxi_pick_up_location,bridge_highway_name,bridge_highway_direction,road_ramp,bridge_highway_segment,garage_lot_name,ferry_direction,ferry_terminal_name,latitude,longitude,location) VALUES {{{allValues}}}';
 
-  var query = Mustache.render(template,{allValues: allValues});
+  var query = Mustache.render(template,{
+    allValues: allValues,
+    scratchTableName: scratchTableName
+  });
 
   return query;
 
