@@ -89,7 +89,7 @@ function pushData() {
 }
 
 function setgeom() {
-  //setting the_geom
+  console.log('Setting the_geom...')
   executeSQL('UPDATE etltest SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
     if(!res.error) {
       appendMaster();
@@ -101,6 +101,7 @@ function setgeom() {
 
 
 function appendMaster() {
+console.log('Appending to production table');
   executeSQL('TRUNCATE TABLE union_311; INSERT into union_311 SELECT * FROM etltest',function(res) {
     if(!res.error) {
       console.log(res);
@@ -114,7 +115,8 @@ function appendMaster() {
 
 function processBatch() {
   var query = buildInsertQuery(valueStrings);
-    executeSQL(query,function() {
+    executeSQL(query,function(res) {
+      console.log(res);
       console.log(totalCount + ' rows processed!')
       batchCount = 0;
       valueStrings.length = 0;
@@ -137,7 +139,10 @@ function executeSQL(sql,cb) {
     url:     url,
     form:    { q: sql }
   }, function(error, response, body) {
-    cb(JSON.parse(body));
+    if(!error) {
+	 cb(JSON.parse(body));
+	} else {console.log(error)}	
+
   });
 }
 
