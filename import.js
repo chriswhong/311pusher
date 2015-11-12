@@ -76,6 +76,7 @@ function pushData() {
   });
 
   lr.on('end', function () {
+      console.log('Last chunk!')
       //process the last chunk
       lastBatch = true;
       processBatch();
@@ -160,8 +161,10 @@ function checkSize() {
 
 function processBatch() {
   console.log('Pushing ' + batchCount + ' rows...')
-  var query = buildInsertQuery(valueStrings);
-  executeSQL(query,function(res) {
+  
+  if (batchCount>0) {
+    var query = buildInsertQuery(valueStrings);
+    executeSQL(query,function(res) {
     if (res.error) {
       console.log("There was an error, trying again")
       processBatch();
@@ -182,6 +185,11 @@ function processBatch() {
     
     
   });
+  } else {
+    checkSize();
+  }
+
+
 }
 
 //executes SQL API calls
