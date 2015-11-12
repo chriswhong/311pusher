@@ -1,6 +1,6 @@
 env=$1
 
-if [ "$1" == "dev" ]; then
+if [ $1 = "dev" ]; then
   rowcount=1001
   insertcount=600
   tablename=union_311_dev

@@ -162,18 +162,25 @@ function processBatch() {
   console.log('Pushing ' + batchCount + ' rows...')
   var query = buildInsertQuery(valueStrings);
   executeSQL(query,function(res) {
-    console.log(res);
-    totalCount += res.total_rows;
-    console.log('Total pushed: '+ totalCount)
-    batchCount = 0;
-    valueStrings.length = 0;
-    
-    console.log(lastBatch)
-    if(lastBatch == true) {
-      checkSize();
+    if (res.error) {
+      console.log("There was an error, trying again")
+      processBatch();
     } else {
-      lr.resume();
+      console.log(res);
+      totalCount += res.total_rows;
+      console.log('Total pushed: '+ totalCount)
+      batchCount = 0;
+      valueStrings.length = 0;
+      
+      console.log(lastBatch)
+      if(lastBatch == true) {
+        checkSize();
+      } else {
+        lr.resume();
+      }
     }
+    
+    
   });
 }
 
@@ -196,6 +203,10 @@ function executeSQL(sql,cb) {
         cb(JSON.parse(body));
       } catch (e) {
         console.log(body)
+        cb({
+          error:true,
+          response: body
+        })
       }
 	     
 	   } else {
