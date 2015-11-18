@@ -3,7 +3,8 @@ var LineByLineReader = require('line-by-line'),
   CSV = require('csv-string'),
   request = require('request'),
   fs = require('fs'),
-  nodemailer = require('nodemailer');
+  nodemailer = require('nodemailer')
+  moment = require('moment');
 
 require('dotenv').load();
 
@@ -94,7 +95,6 @@ function setgeom() {
     }
   })
 }
-
 
 function appendMaster() {
   console.log('Appending to production table..');
@@ -232,6 +232,13 @@ function setHeader(line) {
 function buildValueString(line) {
   var valueString = '(';
   line.forEach(function(value, i) {
+    //convert times to GMT prior to insert
+    if(i == 1 || i==2 || i==20) {
+      if (value.length>0) {
+         value = shiftTime(value);
+      }
+    }
+
     //escape single quotes
     value = value.replace(/'/g, "''");
 
@@ -250,6 +257,13 @@ function buildValueString(line) {
   });
 
   return valueString;
+}
+
+function shiftTime(timestamp) {
+  console.log(timestamp);
+  timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
+  console.log(timestamp);
+  return timestamp;
 }
 
 function buildInsertQuery() {
