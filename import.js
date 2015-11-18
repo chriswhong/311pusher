@@ -150,7 +150,7 @@ function checkSize() {
       var count = res.rows[0].count;
       console.log('I count ' + count + ' rows in the CartoDB table');
       console.log(count,sourceRowcount-1)
-      if (count == sourceRowcount-1) {
+      if (count >= sourceRowcount-1) {
         setgeom();
       }
     } else {
