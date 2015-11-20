@@ -1,8 +1,8 @@
 env=$1
 
 if [ $1 = "dev" ]; then
-  rowcount=11
-  insertcount=1
+  rowcount=100001
+  insertcount=500
   tablename=union_311_dev
 else
   rowcount=1500001

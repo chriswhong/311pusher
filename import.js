@@ -112,6 +112,21 @@ function appendMaster() {
   })
 }
 
+function renameTables() {
+  var sql = Mustache.render('ALTER TABLE {{tableName}} RENAME TO {{tableName}}_old; ALTER TABLE {{scratchTableName}} RENAME TO {{tableName}}; ALTER TABLE {{tableName}}_old RENAME TO {{scratchTableName}}',{
+    tableName: tableName,
+    scratchTableName: scratchTableName
+  });
+  executeSQL(sql, function(res) {
+    if(!res.error) {
+      console.log(res);
+      checkFinalSize();
+    } else {
+      console.log(res.error);
+    }
+  })
+}
+
 function checkFinalSize() {
   console.log('Verifying rowcount in production table...');
   executeSQL('SELECT count(*) FROM ' + tableName, function(res) {
@@ -151,7 +166,8 @@ function checkSize() {
       console.log('I count ' + count + ' rows in the scratch table');
       console.log(count,sourceRowcount-1)
       if (count >= sourceRowcount-1) {
-        appendMaster();
+        //appendMaster();
+        renameTables();
       }
     } else {
       console.log(res.error)
