@@ -84,17 +84,17 @@ function pushData() {
   });
 }
 
-function setgeom() {
-  console.log('Setting the_geom...')
-  executeSQL('UPDATE ' + scratchTableName + ' SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
-    if(!res.error) {
-      console.log(res);
-      appendMaster();
-    } else {
-      console.log(res.error);
-    }
-  })
-}
+// function setgeom() {
+//   console.log('Setting the_geom...')
+//   executeSQL('UPDATE ' + scratchTableName + ' SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
+//     if(!res.error) {
+//       console.log(res);
+//       appendMaster();
+//     } else {
+//       console.log(res.error);
+//     }
+//   })
+// }
 
 function appendMaster() {
   console.log('Appending to production table..');
@@ -148,10 +148,10 @@ function checkSize() {
   executeSQL('SELECT count(*) FROM ' + scratchTableName, function(res) {
     if(!res.error) {
       var count = res.rows[0].count;
-      console.log('I count ' + count + ' rows in the CartoDB table');
+      console.log('I count ' + count + ' rows in the scratch table');
       console.log(count,sourceRowcount-1)
       if (count >= sourceRowcount-1) {
-        setgeom();
+        appendMaster();
       }
     } else {
       console.log(res.error)
@@ -166,7 +166,7 @@ function processBatch() {
     var query = buildInsertQuery(valueStrings);
     executeSQL(query,function(res) {
     if (res.error) {
-      console.log("There was an error, trying again")
+      console.log("There was an error, trying again",res.error)
       processBatch();
     } else {
       console.log(res);
@@ -230,13 +230,23 @@ function setHeader(line) {
 }
 
 function buildValueString(line) {
-  var valueString = '(';
+  var valueString = '',
+  coord = {};
+
   line.forEach(function(value, i) {
     //convert times to GMT prior to insert
     if(i == 1 || i==2 || i==20) {
       if (value.length>0) {
          value = shiftTime(value);
       }
+    }
+
+    if(i==51) {
+      coord.lon = value;
+    }
+
+    if(i==50) {
+      coord.lat = value;    
     }
 
     //escape single quotes
@@ -250,19 +260,30 @@ function buildValueString(line) {
     
     if(i<line.length-1) {
       valueString += ',';
-    } else {
-      valueString += ')'
-    }
+    } 
 
   });
 
+
+  var makePoint;
+  if(coord.lat.length>0 && coord.lon.length>0) {
+    makePoint = Mustache.render('ST_SetSRID(ST_MakePoint({{lon}}, {{lat}}), 4326)',coord);
+  } else {
+    makePoint = 'null';
+  }
+ 
+
+  valueString = Mustache.render('({{{makePoint}}},{{{valueString}}})',{
+    valueString: valueString,
+    makePoint: makePoint
+  });
+
+  //ST_SetSRID(ST_MakePoint(long, lat), 4326);
   return valueString;
 }
 
 function shiftTime(timestamp) {
-  console.log(timestamp);
   timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
-  console.log(timestamp);
   return timestamp;
 }
 
@@ -276,12 +297,13 @@ function buildInsertQuery() {
   });
 
 
-  var template = 'INSERT into {{scratchTableName}} (unique_key,created_date,closed_date,agency,agency_name,complaint_type,descriptor,location_type,incident_zip,incident_address,street_name,cross_street_1,cross_street_2,intersection_street_1,intersection_street_2,address_type,city,landmark,facility_type,status,due_date,resolution_description,resolution_action_updated_date,community_board,borough,x_coordinate_state_plane,y_coordinate_state_plane,park_facility_name,park_borough,school_name,school_number,school_region,school_code,school_phone_number,school_address,school_city,school_state,school_zip,school_not_found,school_or_citywide_complaint,vehicle_type,taxi_company_borough,taxi_pick_up_location,bridge_highway_name,bridge_highway_direction,road_ramp,bridge_highway_segment,garage_lot_name,ferry_direction,ferry_terminal_name,latitude,longitude,location) VALUES {{{allValues}}}';
+  var template = 'INSERT into {{scratchTableName}} (the_geom,unique_key,created_date,closed_date,agency,agency_name,complaint_type,descriptor,location_type,incident_zip,incident_address,street_name,cross_street_1,cross_street_2,intersection_street_1,intersection_street_2,address_type,city,landmark,facility_type,status,due_date,resolution_description,resolution_action_updated_date,community_board,borough,x_coordinate_state_plane,y_coordinate_state_plane,park_facility_name,park_borough,school_name,school_number,school_region,school_code,school_phone_number,school_address,school_city,school_state,school_zip,school_not_found,school_or_citywide_complaint,vehicle_type,taxi_company_borough,taxi_pick_up_location,bridge_highway_name,bridge_highway_direction,road_ramp,bridge_highway_segment,garage_lot_name,ferry_direction,ferry_terminal_name,latitude,longitude,location) VALUES {{{allValues}}}';
 
   var query = Mustache.render(template,{
     allValues: allValues,
     scratchTableName: scratchTableName
   });
+
 
   return query;
 
