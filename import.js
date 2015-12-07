@@ -4,7 +4,15 @@ var LineByLineReader = require('line-by-line'),
   request = require('request'),
   fs = require('fs'),
   nodemailer = require('nodemailer')
-  moment = require('moment');
+  moment = require('moment'),
+  dns = require('dns')
+
+var dnscache = require('dnscache')({
+        "enable" : true,
+        "ttl" : 300,
+        "cachesize" : 1000
+    });
+
 
 require('dotenv').load();
 
@@ -34,16 +42,28 @@ var totalCount = 0,
   lr,
   lastBatch = false;
 
-console.log('Truncating table...');
-executeSQL('TRUNCATE TABLE ' + tableName + '_scratch', function(res){
-  console.log(res);
-  if(!res.error) {
-    console.log('Success, pushing data to CartoDB...')
-    pushData();
-  } else {
-    console.log(res.error)
-  }
+var domain = Mustache.render('https://{{username}}.cartodb.com',{ username: cdbConfig.username })
+
+dnscache.lookup(domain, function(err, result) {
+  console.log('Caching dns...');
+  truncateTable();
 });
+
+
+function truncateTable() {
+ console.log('Truncating table...');
+  executeSQL('TRUNCATE TABLE ' + tableName + '_scratch', function(res){
+    console.log(res);
+    if(!res.error) {
+      console.log('Success, pushing data to CartoDB...')
+      pushData();
+    } else {
+      console.log(res.error)
+    }
+  });
+}
+
+
 
 function pushData() {
 
