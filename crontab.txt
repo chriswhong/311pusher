@@ -1,0 +1,1 @@
+0 5 * * * cd ~/311pusher && sh script.sh | tee logfile.txt
