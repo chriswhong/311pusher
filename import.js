@@ -6,79 +6,76 @@ var LineByLineReader = require('line-by-line'),
   nodemailer = require('nodemailer')
   moment = require('moment'),
   dns = require('dns')
-
-var dnscache = require('dnscache')({
-        "enable" : true,
-        "ttl" : 300,
-        "cachesize" : 1000
-    });
-
-
 require('dotenv').load();
 
-// create reusable transporter object using SMTP transport 
-var transporter = nodemailer.createTransport({
-    service: 'Gmail',
-    auth: {
-        user: process.env.EMAIL,
-        pass: process.env.EMAILPASS
-    }
-});
 
 var sourceFile = process.argv[2];
 var sourceRowcount = process.argv[3];
 var insertCount = process.argv[4];
 var tableName = process.argv[5];
 var scratchTableName = tableName + '_scratch';
+  var header;
 
 var cdbConfig = {
   username: process.env.USERNAME,
   apikey: process.env.APIKEY
 }
 
+var CartoDB = require('cartodb');
+ 
+var sql = new CartoDB.SQL({
+  user: process.env.USERNAME, 
+  api_key: process.env.APIKEY
+})
+
+
 var totalCount = 0,
   batchCount = 0,
   valueStrings = [],
   lr,
-  lastBatch = false;
+  lastBatch = false, 
+  errorCount;
 
-var domain = Mustache.render('https://{{username}}.cartodb.com',{ username: cdbConfig.username })
 
-dnscache.lookup(domain, function(err, result) {
-  console.log('Caching dns...');
-  truncateTable();
-});
+truncateTable();
+
+
+
 
 
 function truncateTable() {
  console.log('Truncating table...');
-  executeSQL('TRUNCATE TABLE ' + tableName + '_scratch', function(res){
-    console.log(res);
-    if(!res.error) {
+  sql.execute('TRUNCATE TABLE ' + tableName + '_scratch')
+    .on('done', function(res) {
+      console.log(res);
       console.log('Success, pushing data to CartoDB...')
       pushData();
-    } else {
-      console.log(res.error)
-    }
-  });
+    })
 }
-
-
 
 function pushData() {
 
   var firstLine = true;
-  var header;
+
 
   lr = new LineByLineReader(sourceFile);
 
   lr.on('line', function (line) {
     
     if(firstLine) {
+
       firstLine=false;
+      header = CSV.parse(line);
     } else {
       line = CSV.parse(line);
-      var valueString = buildValueString(line[0]);
+      
+      var data = {};
+      line[0].forEach( function(value, i) {
+        data[header[0][i]] = line[0][i]
+      })
+
+
+      var valueString = buildValueString(data);
       valueStrings.push(valueString); 
       batchCount++;
       // totalCount++;
@@ -104,95 +101,39 @@ function pushData() {
   });
 }
 
-// function setgeom() {
-//   console.log('Setting the_geom...')
-//   executeSQL('UPDATE ' + scratchTableName + ' SET the_geom = ST_SetSRID(ST_MakePoint(longitude,latitude),4326)',function(res) {
-//     if(!res.error) {
-//       console.log(res);
-//       appendMaster();
-//     } else {
-//       console.log(res.error);
-//     }
-//   })
-// }
+function buildValueString(data) {
 
-function appendMaster() {
-  console.log('Appending to production table..');
-  var sql = Mustache.render('TRUNCATE TABLE {{tableName}}; INSERT into {{tableName}} SELECT * FROM {{scratchTableName}}',{
-    tableName: tableName,
-    scratchTableName: scratchTableName
-  });
-  executeSQL(sql, function(res) {
-    if(!res.error) {
-      console.log(res);
-      checkFinalSize();
+  //transform individual data elements when data is an object, then CSV.stringify() it.
+  for (var key in data) {
+
+    //escape single quotes
+    data[key] = data[key].replace(/'/g, "''");
+
+    //convert times to GMT
+    if (key == 'closed_date' || key == 'created_date' || key == 'resolution_action_updated_date') {
+      data[key] = shiftTime(data[key])
     } else {
-      console.log(res.error);
+      
     }
-  })
-}
 
-function renameTables() {
-  var sql = Mustache.render('ALTER TABLE {{tableName}} RENAME TO {{tableName}}_old; ALTER TABLE {{scratchTableName}} RENAME TO {{tableName}}; ALTER TABLE {{tableName}}_old RENAME TO {{scratchTableName}}',{
-    tableName: tableName,
-    scratchTableName: scratchTableName
-  });
-  executeSQL(sql, function(res) {
-    if(!res.error) {
-      console.log(res);
-      checkFinalSize();
+
+    if(data[key]>0) {
+      data[key] = '\'' + data[key] + '\'';
     } else {
-      console.log(res.error);
+      data[key] = 'null'
     }
-  })
-}
+    //location:POINT (-73.891815 40.859385)
 
-function checkFinalSize() {
-  console.log('Verifying rowcount in production table...');
-  executeSQL('SELECT count(*) FROM ' + tableName, function(res) {
-    if(!res.error) {
-      console.log('Rowcount: ' + res.rows[0].count);
-      sendNotification(res.rows[0].count);
-    } else {
-      console.log(res.error);
-    }
-  })
-}
+    console.log(data);
 
-function sendNotification(count) {
-  // setup e-mail data with unicode symbols 
-  var message = 'The 311 script completed and wrote ' + count + ' into table ' + tableName + '.  I just thought you might want to know...';
+  }
 
-  var mailOptions = {
-      from: 'Chris Whong ✔ <chris.m.whong@gmail.com>', // sender address 
-      to: 'chris.m.whong@gmail.com', // list of receivers 
-      subject: '311 Script Complete', // Subject line 
-      text: message
-  };
-   
-  // send mail with defined transport object 
-  transporter.sendMail(mailOptions, function(error, info){
-      if(error){
-          return console.log(error);
-      }
-      console.log('Message sent: ' + info.response);
-  });
-}
+  var values = CSV.stringify(data).replace(/(\r\n|\n|\r|")/gm,"");
+  var valueString = '(' + values + ')';
 
-function checkSize() {
-  executeSQL('SELECT count(*) FROM ' + scratchTableName, function(res) {
-    if(!res.error) {
-      var count = res.rows[0].count;
-      console.log('I count ' + count + ' rows in the scratch table');
-      console.log(count,sourceRowcount-1)
-      if (count >= sourceRowcount-1) {
-        //appendMaster();
-        renameTables();
-      }
-    } else {
-      console.log(res.error)
-    }
-  });
+  console.log(valueString);
+  
+  return valueString;
 }
 
 function processBatch() {
@@ -200,27 +141,25 @@ function processBatch() {
   
   if (batchCount>0) {
     var query = buildInsertQuery(valueStrings);
-    executeSQL(query,function(res) {
-    if (res.error) {
-      console.log("There was an error, trying again",res.error)
-      processBatch();
-    } else {
-      console.log(res);
-      totalCount += res.total_rows;
-      console.log('Total pushed: '+ totalCount)
-      batchCount = 0;
-      valueStrings.length = 0;
-      
-      console.log(lastBatch)
-      if(lastBatch == true) {
-        checkSize();
-      } else {
-        lr.resume();
-      }
-    }
-    
-    
-  });
+    sql.execute(query)
+      .on('done', function(res) {
+        console.log(res);
+        totalCount += res.total_rows;
+        console.log('Total pushed: '+ totalCount)
+        batchCount = 0;
+        valueStrings.length = 0;
+        
+        console.log(lastBatch)
+        if(lastBatch == true) {
+          checkSize();
+        } else {
+          lr.resume();
+        }
+      })
+      .on('_error', function(res) {
+        console.log(res);
+      })
+  
   } else {
     checkSize();
   }
@@ -228,119 +167,75 @@ function processBatch() {
 
 }
 
-//executes SQL API calls
-function executeSQL(sql,cb) {
-  
-  var options = {
-    username: cdbConfig.username,
-    apikey: cdbConfig.apikey
-  }
-
-  var url = Mustache.render('https://{{username}}.cartodb.com/api/v2/sql?&api_key={{apikey}}',options);
-
-  request.post({
-    url:     url,
-    form:    { q: sql }
-  }, function(error, response, body) {
-    if(!error) {
-      try {
-        cb(JSON.parse(body));
-      } catch (e) {
-        console.log(body)
-        cb({
-          error:true,
-          response: body
-        })
-      }
-	     
-	   } else {
-      console.log(error)
-    }	
-
-  });
-}
-
-function setHeader(line) {
-  header = line.split(',');
-  
-}
-
-function buildValueString(line) {
-  var valueString = '',
-  coord = {};
-
-  line.forEach(function(value, i) {
-    //convert times to GMT prior to insert
-    if(i == 1 || i==2 || i==20) {
-      if (value.length>0) {
-         value = shiftTime(value);
-      }
-    }
-
-    if(i==51) {
-      coord.lon = value;
-    }
-
-    if(i==50) {
-      coord.lat = value;    
-    }
-
-    //escape single quotes
-    value = value.replace(/'/g, "''");
-
-    if(value.length>0) {
-      valueString += '\'' + value + '\'';
-    } else {
-      valueString += 'null'
-    }
-    
-    if(i<line.length-1) {
-      valueString += ',';
-    } 
-
-  });
-
-
-  var makePoint;
-  if(coord.lat.length>0 && coord.lon.length>0) {
-    makePoint = Mustache.render('ST_SetSRID(ST_MakePoint({{lon}}, {{lat}}), 4326)',coord);
-  } else {
-    makePoint = 'null';
-  }
- 
-
-  valueString = Mustache.render('({{{makePoint}}},{{{valueString}}})',{
-    valueString: valueString,
-    makePoint: makePoint
-  });
-
-  //ST_SetSRID(ST_MakePoint(long, lat), 4326);
-  return valueString;
-}
-
-function shiftTime(timestamp) {
-  timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
-  return timestamp;
-}
 
 function buildInsertQuery() {
   var allValues = '';
-  valueStrings.forEach(function(valueString,i) {
+  //concatenate valueStrings
+  valueStrings.forEach(function(valueString, i) {
     allValues += valueString;
+
     if(i<valueStrings.length-1) {
       allValues += ',';
     } 
   });
 
 
-  var template = 'INSERT into {{scratchTableName}} (the_geom,unique_key,created_date,closed_date,agency,agency_name,complaint_type,descriptor,location_type,incident_zip,incident_address,street_name,cross_street_1,cross_street_2,intersection_street_1,intersection_street_2,address_type,city,landmark,facility_type,status,due_date,resolution_description,resolution_action_updated_date,community_board,borough,x_coordinate_state_plane,y_coordinate_state_plane,park_facility_name,park_borough,school_name,school_number,school_region,school_code,school_phone_number,school_address,school_city,school_state,school_zip,school_not_found,school_or_citywide_complaint,vehicle_type,taxi_company_borough,taxi_pick_up_location,bridge_highway_name,bridge_highway_direction,road_ramp,bridge_highway_segment,garage_lot_name,ferry_direction,ferry_terminal_name,latitude,longitude,location) VALUES {{{allValues}}}';
+  var template = 'INSERT into {{scratchTableName}} ({{header}}) VALUES {{{allValues}}}';
 
   var query = Mustache.render(template,{
     allValues: allValues,
+    header: CSV.stringify(header),
     scratchTableName: scratchTableName
   });
 
+  console.log(query);
 
   return query;
 
+}
+
+
+
+function checkSize() {
+
+  sql.execute('SELECT count(*) FROM ' + scratchTableName)
+    .on('done', function(res) {
+      var count = res.rows[0].count;
+      console.log('I count ' + count + ' rows in the scratch table');
+      console.log(count,sourceRowcount-1)
+      if (count >= sourceRowcount-1) {
+        //appendMaster();
+        renameTables();
+      }
+    })
+}
+
+function renameTables() {
+  var query = Mustache.render('ALTER TABLE {{tableName}} RENAME TO {{tableName}}_old; ALTER TABLE {{scratchTableName}} RENAME TO {{tableName}}; ALTER TABLE {{tableName}}_old RENAME TO {{scratchTableName}}',{
+    tableName: tableName,
+    scratchTableName: scratchTableName
+  });
+
+  sql.execute(query)
+    .on('done', function(res) {
+      console.log(res);
+      checkFinalSize();
+    })
+
+}
+
+function checkFinalSize() {
+  console.log('Verifying rowcount in production table...');
+
+  sql.execute('SELECT count(*) FROM ' + tableName)
+    .on('done', function(res) {
+      console.log('Rowcount: ' + res.rows[0].count);
+    })
+}
+
+
+//shift time to GMT
+function shiftTime(timestamp) {
+  timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
+  return timestamp;
 }
