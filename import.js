@@ -176,7 +176,7 @@ function processBatch() {
       })
       .on('_error', function(res) {
         sendNotification(res);
-        console.log(res);
+        console.log('Error with INSERT ', res);
       })
   
   } else {

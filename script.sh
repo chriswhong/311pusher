@@ -5,8 +5,8 @@ if [ $1 = "dev" ]; then
   insertcount=1
   tablename=union_311_dev
 else
-  rowcount=8000
-  insertcount=100
+  rowcount=15000
+  insertcount=500
   tablename=union_311
 fi
 
