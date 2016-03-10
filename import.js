@@ -5,16 +5,24 @@ var LineByLineReader = require('line-by-line'),
   fs = require('fs'),
   nodemailer = require('nodemailer')
   moment = require('moment'),
-  dns = require('dns')
+  dns = require('dns');
+
 require('dotenv').load();
 
+// create reusable transporter object using SMTP transport 
+var transporter = nodemailer.createTransport({
+    service: 'Gmail',
+    auth: {
+        user: process.env.EMAIL,
+        pass: process.env.EMAILPASS
+    }
+});
 
 var sourceFile = process.argv[2];
 var sourceRowcount = process.argv[3];
 var insertCount = process.argv[4];
 var tableName = process.argv[5];
 var scratchTableName = tableName + '_scratch';
-  var header;
 
 var cdbConfig = {
   username: process.env.USERNAME,
@@ -32,9 +40,9 @@ var sql = new CartoDB.SQL({
 var totalCount = 0,
   batchCount = 0,
   valueStrings = [],
+  lastBatch = false,
   lr,
-  lastBatch = false, 
-  errorCount;
+  header;
 
 
 truncateTable();
@@ -66,9 +74,12 @@ function pushData() {
 
       firstLine=false;
       header = CSV.parse(line);
+
     } else {
+
       line = CSV.parse(line);
       
+      //convert to object
       var data = {};
       line[0].forEach( function(value, i) {
         data[header[0][i]] = line[0][i]
@@ -77,12 +88,10 @@ function pushData() {
 
       var valueString = buildValueString(data);
       valueStrings.push(valueString); 
-      batchCount++;
-      // totalCount++;
     }
 
 
-    if(batchCount==insertCount) {
+    if(valueStrings.length == insertCount) {
       lr.pause();
       processBatch();
     }
@@ -117,29 +126,31 @@ function buildValueString(data) {
     }
 
 
-    if(data[key]>0) {
+    if(data[key].length > 0) {
       data[key] = '\'' + data[key] + '\'';
     } else {
       data[key] = 'null'
     }
     //location:POINT (-73.891815 40.859385)
 
-    console.log(data);
+    //console.log(data);
 
   }
 
+
+  //add the_geom
+  data.the_geom = 'ST_PointFromText(' + data.location + ',4326)';
+
   var values = CSV.stringify(data).replace(/(\r\n|\n|\r|")/gm,"");
   var valueString = '(' + values + ')';
-
-  console.log(valueString);
   
   return valueString;
 }
 
 function processBatch() {
-  console.log('Pushing ' + batchCount + ' rows...')
+  console.log('Pushing ' + valueStrings.length + ' rows...')
   
-  if (batchCount>0) {
+  if (valueStrings.length > 0) {
     var query = buildInsertQuery(valueStrings);
     sql.execute(query)
       .on('done', function(res) {
@@ -149,7 +160,6 @@ function processBatch() {
         batchCount = 0;
         valueStrings.length = 0;
         
-        console.log(lastBatch)
         if(lastBatch == true) {
           checkSize();
         } else {
@@ -157,6 +167,7 @@ function processBatch() {
         }
       })
       .on('_error', function(res) {
+        sendNotification(res);
         console.log(res);
       })
   
@@ -180,7 +191,7 @@ function buildInsertQuery() {
   });
 
 
-  var template = 'INSERT into {{scratchTableName}} ({{header}}) VALUES {{{allValues}}}';
+  var template = 'INSERT into {{scratchTableName}} ({{header}},the_geom) VALUES {{{allValues}}}';
 
   var query = Mustache.render(template,{
     allValues: allValues,
@@ -202,9 +213,7 @@ function checkSize() {
     .on('done', function(res) {
       var count = res.rows[0].count;
       console.log('I count ' + count + ' rows in the scratch table');
-      console.log(count,sourceRowcount-1)
       if (count >= sourceRowcount-1) {
-        //appendMaster();
         renameTables();
       }
     })
@@ -229,13 +238,41 @@ function checkFinalSize() {
 
   sql.execute('SELECT count(*) FROM ' + tableName)
     .on('done', function(res) {
-      console.log('Rowcount: ' + res.rows[0].count);
+
+      var finalRowcount = res.rows[0].count;
+      console.log('Rowcount: ' + finalRowcount);
+
+      var message = Mustache.render('311 Importer complete, {{finalRowcount}} rows were written to the table', {finalRowcount: finalRowcount})
+
+      sendNotification(message);
     })
 }
 
 
 //shift time to GMT
 function shiftTime(timestamp) {
-  timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
+  if(timestamp.length > 0 ) {
+    timestamp = moment(timestamp).add(5,'hours').format('MM/DD/YYYY hh:mm:ss A');
+  }
+
   return timestamp;
+}
+
+function sendNotification(message) {
+  // setup e-mail data with unicode symbols 
+
+  var mailOptions = {
+      from: 'Chris Whong <chris.m.whong@gmail.com>', // sender address 
+      to: 'chris.m.whong@gmail.com', // list of receivers 
+      subject: '311 Script Complete', // Subject line 
+      text: message
+  };
+   
+  // send mail with defined transport object 
+  transporter.sendMail(mailOptions, function(error, info){
+      if(error){
+          return console.log(error);
+      }
+      console.log('Message sent: ' + info.response);
+  });
 }
