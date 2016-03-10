@@ -17,6 +17,6 @@ mkdir finalcount
 
 dlcount=$(( rowcount + 1 ))
 
-curl 'https://data.cityofnewyork.us/resource/fhrw-4uyv.csv?$LIMIT=10000000$ORDER=created_date%20DESC' | head -n "$dlcount" >> data/source.csv
+curl "https://data.cityofnewyork.us/resource/fhrw-4uyv.csv?\$LIMIT=10000000&\$ORDER=created_date%20DESC" | head -n "$dlcount" >> data/source.csv
 
 node import.js data/source.csv $rowcount $insertcount $tablename
