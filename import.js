@@ -59,12 +59,6 @@ dnscache.lookup(domain, function(err, result) {
 });
 
 
-truncateTable();
-
-
-
-
-
 function truncateTable() {
  console.log('Truncating table...');
   sql.execute('TRUNCATE TABLE ' + tableName + '_scratch')
@@ -213,7 +207,7 @@ function buildInsertQuery() {
     scratchTableName: scratchTableName
   });
 
-  console.log(query);
+  //console.log(query);
 
   return query;
 
@@ -234,6 +228,7 @@ function checkSize() {
 }
 
 function renameTables() {
+  console.log('swapping scratch table for production')
   var query = Mustache.render('ALTER TABLE {{tableName}} RENAME TO {{tableName}}_old; ALTER TABLE {{scratchTableName}} RENAME TO {{tableName}}; ALTER TABLE {{tableName}}_old RENAME TO {{scratchTableName}}',{
     tableName: tableName,
     scratchTableName: scratchTableName
@@ -249,9 +244,10 @@ function renameTables() {
 
 function checkFinalSize() {
   console.log('Verifying rowcount in production table...');
-
+  console.log('SELECT count(*) FROM ' + tableName);
   sql.execute('SELECT count(*) FROM ' + tableName)
     .on('done', function(res) {
+      console.log(res);
 
       var finalRowcount = res.rows[0].count;
       console.log('Rowcount: ' + finalRowcount);

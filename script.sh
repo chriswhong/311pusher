@@ -5,7 +5,7 @@ if [ $1 = "dev" ]; then
   insertcount=1
   tablename=union_311_dev
 else
-  rowcount=2000000
+  rowcount=8000
   insertcount=100
   tablename=union_311
 fi
@@ -17,6 +17,6 @@ mkdir finalcount
 
 dlcount=$(( rowcount + 1 ))
 
-curl 'https://data.cityofnewyork.us/resource/fhrw-4uyv.csv?$LIMIT=2000000' | head -n "$dlcount" >> data/source.csv
+curl 'https://data.cityofnewyork.us/resource/fhrw-4uyv.csv?$LIMIT=10000000' | head -n "$dlcount" >> data/source.csv
 
 node import.js data/source.csv $rowcount $insertcount $tablename
