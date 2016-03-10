@@ -44,6 +44,20 @@ var totalCount = 0,
   lr,
   header;
 
+var dnscache = require('dnscache')({
+        "enable" : true,
+        "ttl" : 300,
+        "cachesize" : 1000
+    });
+
+
+var domain = Mustache.render('https://{{username}}.cartodb.com',{ username: cdbConfig.username })
+
+dnscache.lookup(domain, function(err, result) {
+  console.log('Caching dns...');
+  truncateTable();
+});
+
 
 truncateTable();
 
